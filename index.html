@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YOLO11 Test</title>
+<style>
+body{margin:0;background:#111;color:#eee;font-family:system-ui,sans-serif;text-align:center}
+#wrap{position:relative;display:inline-block;margin-top:20px}
+video,canvas{max-width:90vw;border-radius:8px}
+canvas{position:absolute;left:0;top:0;pointer-events:none}
+#status{margin-top:10px;font-size:16px;padding:8px;color:#eee}
+</style>
+</head>
+<body>
+<h2>YOLO11 Webcam Test</h2>
+<div id="status">Loading…</div>
+<div id="wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</div>
+
+<!-- TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.22.0/dist/tf-backend-webgl.min.js"></script>
+<!-- YOLO wrapper -->
+<script src="https://cdn.jsdelivr.net/npm/yolo-ts@latest/dist/yolo.umd.js"></script>
+
+<script>
+(async () => {
+  const status = document.getElementById('status');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const log = (msg) => { status.textContent = msg; };
+
+  try {
+    // --- Diagnostic 1: did the library load at all? ---
+    log('Checking library… yolo = ' + typeof window.yolo);
+    await new Promise(r => setTimeout(r, 1500));
+
+    if (typeof window.yolo === 'undefined') {
+      log('❌ Library did NOT load. The CDN script failed.');
+      return;
+    }
+
+    // --- Diagnostic 2: does it have a YOLO class? ---
+    log('Library loaded. YOLO class = ' + typeof window.yolo.YOLO);
+    await new Promise(r => setTimeout(r, 1500));
+
+    if (typeof window.yolo.YOLO !== 'function') {
+      log('❌ Library loaded but has no YOLO class. Globals available: ' + Object.keys(window.yolo).join(', '));
+      return;
+    }
+
+    // --- Diagnostic 3: start the camera ---
+    log('Starting camera…');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    log('Camera ready.');
+
+    // --- Diagnostic 4: create the detector ---
+    log('Creating detector…');
+    const detector = new window.yolo.YOLO();
+    log('Detector created. Methods: ' + Object.getOwnPropertyNames(Object.getPrototypeOf(detector)).join(', '));
+    await new Promise(r => setTimeout(r, 2500));
+
+    // --- Diagnostic 5: try to set it up ---
+    log('Calling setup…');
+    detector.setup({
+      modelUrl: 'https://raw.githubusercontent.com/Hyuto/yolov8-tfjs/master/public/yolov8n_web_model/model.json',
+      scoreThreshold: 0.3,
+      boxLabels: true
+    });
+    log('setup() called. Loading model…');
+    await detector.loadModel();
+    log('✅ Model loaded. Starting detection…');
+
+    // --- Detection loop ---
+    const detect = async () => {
+      if (video.readyState === 4) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        detector.detect(video, detector.model, canvas, (d) => {
+          const n = d && d.boxes ? d.boxes.length : 0;
+          log(n ? `✅ Detected ${n} object(s)` : 'Scanning… point at an object');
+        });
+      }
+      requestAnimationFrame(detect);
+    };
+    detect();
+
+  } catch (e) {
+    log('❌ Error: ' + e.message + ' | Stack: ' + (e.stack || '').split('\n')[0]);
+  }
+})();
+</script>
+</body>
+</html>
