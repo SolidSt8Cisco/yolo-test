@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>YOLO Detection</title>
+<title>LiteRT Card Detector</title>
 <style>
 body{margin:0;background:#111;color:#eee;font-family:system-ui,sans-serif;text-align:center;padding:10px}
 #status{margin:8px 0;font-size:14px;padding:8px;background:#222;border-radius:8px;min-height:40px}
@@ -12,177 +12,85 @@ canvas{position:absolute;left:0;top:0;pointer-events:none;max-width:100%}
 </style>
 </head>
 <body>
-<h2>YOLO Detection</h2>
+<h2>LiteRT Card Detector</h2>
 <div id="status">Loading…</div>
 <div id="wrap">
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.22.0/dist/tf-backend-webgl.min.js"></script>
+<!-- Load LiteRT.js from CDN -->
+<script type="module">
+import { loadLiteRt, loadAndCompile } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
+import { runWithTfjsTensors } from 'https://cdn.jsdelivr.net/npm/@litertjs/tfjs-interop/+esm';
+import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/+esm';
 
-<script>
-(async () => {
-  const status = document.getElementById('status');
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const log = (msg) => { status.textContent = msg; };
+const status = document.getElementById('status');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const log = (msg) => { status.textContent = msg; };
 
-  // COCO class names (the model was trained on these)
-  const COCO = ['person','bicycle','car','motorcycle','airplane','bus','train','truck','boat','traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat','dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack','umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball','kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket','bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple','sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair','couch','potted plant','bed','dining table','toilet','tv','laptop','mouse','remote','keyboard','cell phone','microwave','oven','toaster','sink','refrigerator','book','clock','vase','scissors','teddy bear','hair drier','toothbrush'];
+try {
+  // 1. Initialize LiteRT.js
+  log('Loading LiteRT runtime…');
+  await loadLiteRt('https://cdn.jsdelivr.net/npm/@litertjs/core/wasm/');
 
-  const CONF_THRESHOLD = 0.35;
-  const NMS_IOU = 0.45;
-  const MODEL_SIZE = 640;
+  // 2. Load your .tflite model
+  log('Loading card model…');
+  const model = await loadAndCompile('best.tflite', { accelerator: 'webgpu' });
+  log('Model loaded! Starting camera…');
 
-  try {
-    // 1. Load the model
-    log('Loading model…');
-    const model = await tf.loadGraphModel(
-      'https://raw.githubusercontent.com/Hyuto/yolov8-tfjs/master/public/yolov8n_web_model/model.json'
-    );
-    log('Model loaded. Warming up…');
+  // 3. Start camera
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+  });
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  log('Camera ready. Scanning for cards…');
 
-    // Warm up (first inference is always slow)
-    tf.tidy(() => {
-      const dummy = tf.zeros([1, MODEL_SIZE, MODEL_SIZE, 3]);
-      model.execute(dummy);
-    });
-    log('Warmed up. Starting camera…');
+  // 4. Detection loop
+  let running = false;
+  const detect = async () => {
+    if (!running && video.readyState === 4) {
+      running = true;
+      try {
+        // Preprocess: convert video frame to a TF tensor
+        const input = tf.tidy(() => {
+          const img = tf.browser.fromPixels(video);
+          const resized = tf.image.resizeBilinear(img, [640, 640]);
+          const normalized = resized.div(255.0);
+          // LiteRT might expect NHWC or NCHW. Try NHWC first.
+          return normalized.expandDims(0);
+        });
 
-    // 2. Camera
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-    });
-    video.srcObject = stream;
-    await new Promise(r => video.onloadedmetadata = r);
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    log('Camera ready. Detecting…');
+        // Run the model
+        const outputs = await runWithTfjsTensors(model, [input]);
+        input.dispose();
 
-    // 3. Inference loop
-    let running = false;
-    const detect = async () => {
-      if (!running && video.readyState === 4) {
-        running = true;
-        try {
-          await runDetection();
-        } catch (e) {
-          console.error(e);
-        }
-        running = false;
+        // For now, just log that we got output. Parsing OBB comes next.
+        const out = outputs[0];
+        const shape = out.shape;
+        log(`Model output shape: ${shape.join(', ')}`);
+        
+        // Clean up
+        out.dispose();
+      } catch (e) {
+        console.error(e);
+        log('Detection error: ' + e.message);
       }
-      requestAnimationFrame(detect);
-    };
+      running = false;
+    }
+    requestAnimationFrame(detect);
+  };
+  detect();
 
-    const runDetection = async () => {
-      // Preprocess: draw video to a 640x640 canvas, get pixels
-      const input = tf.tidy(() => {
-        const img = tf.browser.fromPixels(video);
-        const resized = tf.image.resizeBilinear(img, [MODEL_SIZE, MODEL_SIZE]);
-        const normalized = resized.div(255.0);
-        return normalized.expandDims(0); // [1, 640, 640, 3]
-      });
-
-      // Run model
-      const output = await model.executeAsync(input);
-      input.dispose();
-
-      // Output is [1, 84, 8400]. Transpose to [8400, 84].
-      const squeezed = output.squeeze ? output.squeeze() : output;
-      const data = await squeezed.data();
-      const shape = squeezed.shape; // [84, 8400]
-      const numCandidates = shape[1]; // 8400
-      const numCoords = shape[0]; // 84
-
-      // Parse candidates: box (4) + class scores (80)
-      const boxes = [];
-      for (let i = 0; i < numCandidates; i++) {
-        // Find max class score
-        let maxScore = 0, maxClass = -1;
-        for (let c = 0; c < 80; c++) {
-          const score = data[(4 + c) * numCandidates + i];
-          if (score > maxScore) { maxScore = score; maxClass = c; }
-        }
-        if (maxScore < CONF_THRESHOLD) continue;
-
-        // Box is cx, cy, w, h (normalized to 0..1 in the 640x640 input)
-        const cx = data[0 * numCandidates + i];
-        const cy = data[1 * numCandidates + i];
-        const w  = data[2 * numCandidates + i];
-        const h  = data[3 * numCandidates + i];
-
-        // Convert to x1,y1,x2,y2 in video pixel space
-        const scaleX = canvas.width / MODEL_SIZE;
-        const scaleY = canvas.height / MODEL_SIZE;
-        const x1 = (cx - w / 2) * scaleX;
-        const y1 = (cy - h / 2) * scaleY;
-        const x2 = (cx + w / 2) * scaleX;
-        const y2 = (cy + h / 2) * scaleY;
-
-        boxes.push({ x1, y1, x2, y2, score: maxScore, cls: maxClass });
-      }
-
-      squeezed.dispose();
-      if (Array.isArray(output)) output.forEach(t => t.dispose()); else output.dispose();
-
-      // NMS: keep only the best box per overlapping cluster
-      const kept = nms(boxes, NMS_IOU);
-
-      // Draw
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.lineWidth = 3;
-      ctx.font = '16px sans-serif';
-      for (const b of kept) {
-        ctx.strokeStyle = '#ffd34e';
-        ctx.fillStyle = '#ffd34e';
-        ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
-        const label = `${COCO[b.cls] || b.cls} ${(b.score * 100).toFixed(0)}%`;
-        const tw = ctx.measureText(label).width;
-        ctx.fillRect(b.x1, b.y1 - 20, tw + 8, 20);
-        ctx.fillStyle = '#101722';
-        ctx.fillText(label, b.x1 + 4, b.y1 - 5);
-      }
-      log(`Detected ${kept.length} object(s)`);
-    };
-
-    // Non-maximum suppression
-    const nms = (boxes, iouThresh) => {
-      boxes.sort((a, b) => b.score - a.score);
-      const kept = [];
-      const used = new Array(boxes.length).fill(false);
-      for (let i = 0; i < boxes.length; i++) {
-        if (used[i]) continue;
-        kept.push(boxes[i]);
-        for (let j = i + 1; j < boxes.length; j++) {
-          if (used[j]) continue;
-          if (boxes[i].cls !== boxes[j].cls) continue;
-          if (iou(boxes[i], boxes[j]) > iouThresh) used[j] = true;
-        }
-      }
-      return kept;
-    };
-
-    const iou = (a, b) => {
-      const x1 = Math.max(a.x1, b.x1);
-      const y1 = Math.max(a.y1, b.y1);
-      const x2 = Math.min(a.x2, b.x2);
-      const y2 = Math.min(a.y2, b.y2);
-      const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-      const areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
-      const areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
-      return inter / (areaA + areaB - inter);
-    };
-
-    detect();
-
-  } catch (e) {
-    console.error(e);
-    log('❌ Error: ' + e.message);
-  }
-})();
+} catch (e) {
+  console.error(e);
+  log('❌ Error: ' + e.message);
+}
 </script>
 </body>
 </html>
