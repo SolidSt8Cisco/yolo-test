@@ -21,7 +21,7 @@ canvas{position:absolute;left:0;top:0;pointer-events:none;max-width:100%}
 
 <!-- Load LiteRT.js from CDN -->
 <script type="module">
-import { loadLiteRt, loadAndCompile, getWebGpuDevice } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
+import { loadLiteRt, loadAndCompile, liteRt } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
 import { runWithTfjsTensors } from 'https://cdn.jsdelivr.net/npm/@litertjs/tfjs-interop/+esm';
 import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/+esm';
 import 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/+esm';
@@ -37,14 +37,17 @@ try {
   // 0. Initialize TFJS WebGPU backend FIRST
   log('Initializing TFJS WebGPU backend…');
 try {
-  // 1. Initialize LiteRT.js runtime first
-  log('Loading LiteRT runtime…');
-  await loadLiteRt('https://cdn.jsdelivr.net/npm/@litertjs/core/wasm/');
-
-  // 2. Initialize TFJS WebGPU backend
+  // 1. Initialize TFJS WebGPU backend FIRST (required by tfjs-interop)
   log('Initializing TFJS WebGPU backend…');
   await tf.setBackend('webgpu');
+  const backend = tf.backend();
 
+  // 2. Initialize LiteRT.js runtime from your uploaded folder
+  log('Loading LiteRT runtime…');
+  await loadLiteRt('./wasm/');
+
+  // 3. Share the TFJS GPU device with LiteRT (for efficient tensor conversion)
+  liteRt.setWebGpuDevice(backend.device);
   // 3. Make TFJS use the same GPU device as LiteRT (required for tensor conversion)
   const device = await getWebGpuDevice();
   tf.removeBackend('webgpu');
