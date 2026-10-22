@@ -24,6 +24,8 @@ canvas{position:absolute;left:0;top:0;pointer-events:none;max-width:100%}
 import { loadLiteRt, loadAndCompile } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
 import { runWithTfjsTensors } from 'https://cdn.jsdelivr.net/npm/@litertjs/tfjs-interop/+esm';
 import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/+esm';
+import 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/+esm';
+import { WebGPUBackend } from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/+esm';
 
 const status = document.getElementById('status');
 const video = document.getElementById('video');
@@ -32,13 +34,27 @@ const ctx = canvas.getContext('2d');
 const log = (msg) => { status.textContent = msg; };
 
 try {
+  // 0. Initialize TFJS WebGPU backend FIRST
+  log('Initializing TFJS WebGPU backend…');
+  try {
+  await tf.setBackend('webgpu');
+} catch (e) {
+  console.warn('WebGPU not available, falling back to wasm');
+  await tf.setBackend('wasm');
+}
+  const backend = tf.backend();
+  
   // 1. Initialize LiteRT.js
   log('Loading LiteRT runtime…');
   await loadLiteRt('https://cdn.jsdelivr.net/npm/@litertjs/core/wasm/');
+  
+  // Share the GPU device between TFJS and LiteRT (required for tensor conversion)
+  const { liteRt } = await import('https://cdn.jsdelivr.net/npm/@litertjs/core/+esm');
+  liteRt.setWebGpuDevice(backend.device);
 
   // 2. Load your .tflite model
   log('Loading card model…');
-  const model = await loadAndCompile('best.tflite', { accelerator: 'webgpu' });
+  const model = await loadAndCompile('best.tflite', { accelerator: 'wasm' });
   log('Model loaded! Starting camera…');
 
   // 3. Start camera
