@@ -20,7 +20,7 @@ canvas{position:absolute;left:0;top:0;pointer-events:none;max-width:100%}
 </div>
 
 <script type="module">
-import { loadLiteRt, loadAndCompile } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
+import { loadLiteRt, loadAndCompile } from 'https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/+esm';
 import { runWithTfjsTensors } from 'https://cdn.jsdelivr.net/npm/@litertjs/tfjs-interop/+esm';
 import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/+esm';
 
@@ -32,10 +32,10 @@ const log = (msg) => { status.textContent = msg; };
 (async () => {
   try {
     log('Step 1: Loading LiteRT runtime from /yolo-test/wasm/…');
-    await loadLiteRt('/yolo-test/wasm/');
+    await loadLiteRt('https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/wasm/');
     log('Step 2: Runtime loaded. Loading model…');
 
-    const model = await loadAndCompile('/yolo-test/best.tflite', { accelerator: 'wasm' });
+    const model = await loadAndCompile('/yolo-test/best.tflite', { accelerator: 'webgpu' });
     log('Step 3: Model loaded. Starting camera…');
 
     const stream = await navigator.mediaDevices.getUserMedia({
