@@ -31,16 +31,13 @@ const log = (msg) => { status.textContent = msg; };
 
 (async () => {
   try {
-    // 1. Initialize LiteRT runtime from your uploaded wasm folder
-    log('Loading LiteRT runtime…');
+    log('Step 1: Loading LiteRT runtime from /yolo-test/wasm/…');
     await loadLiteRt('/yolo-test/wasm/');
-    log('LiteRT runtime loaded. Loading card model…');
+    log('Step 2: Runtime loaded. Loading model…');
 
-    // 2. Load the .tflite model
     const model = await loadAndCompile('/yolo-test/best.tflite', { accelerator: 'wasm' });
-    log('Model loaded. Starting camera…');
+    log('Step 3: Model loaded. Starting camera…');
 
-    // 3. Start camera
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
     });
@@ -48,9 +45,8 @@ const log = (msg) => { status.textContent = msg; };
     await new Promise(r => video.onloadedmetadata = r);
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    log('Camera ready. Running first inference…');
+    log('Step 4: Camera ready. Running inference…');
 
-    // 4. Single test inference to confirm the model works
     const input = tf.tidy(() => {
       const img = tf.browser.fromPixels(video);
       const resized = tf.image.resizeBilinear(img, [640, 640]);
@@ -61,7 +57,7 @@ const log = (msg) => { status.textContent = msg; };
     input.dispose();
 
     const out = outputs[0];
-    log('✅ Model output shape: ' + out.shape.join(', '));
+    log('✅ SUCCESS. Output shape: ' + out.shape.join(', '));
     out.dispose();
 
   } catch (e) {
