@@ -44,7 +44,7 @@ try {
 
   // 2. Initialize LiteRT.js runtime from your uploaded folder
   log('Loading LiteRT runtime…');
-  await loadLiteRt('./wasm/');
+  await loadLiteRt('/yolo-test/wasm/');
 
   // 3. Share the TFJS GPU device with LiteRT (for efficient tensor conversion)
   liteRt.setWebGpuDevice(backend.device);
