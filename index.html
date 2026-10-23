@@ -19,96 +19,56 @@ canvas{position:absolute;left:0;top:0;pointer-events:none;max-width:100%}
   <canvas id="canvas"></canvas>
 </div>
 
-<!-- Load LiteRT.js from CDN -->
 <script type="module">
-import { loadLiteRt, loadAndCompile, liteRt } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
+import { loadLiteRt, loadAndCompile } from 'https://cdn.jsdelivr.net/npm/@litertjs/core/+esm';
 import { runWithTfjsTensors } from 'https://cdn.jsdelivr.net/npm/@litertjs/tfjs-interop/+esm';
 import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/+esm';
-import 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/+esm';
-import { WebGPUBackend } from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/+esm';
 
 const status = document.getElementById('status');
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
 const log = (msg) => { status.textContent = msg; };
 
-try {
-  // 0. Initialize TFJS WebGPU backend FIRST
-  log('Initializing TFJS WebGPU backend…');
-try {
-  // 1. Initialize TFJS WebGPU backend FIRST (required by tfjs-interop)
-  log('Initializing TFJS WebGPU backend…');
-  await tf.setBackend('webgpu');
-  const backend = tf.backend();
+(async () => {
+  try {
+    // 1. Initialize LiteRT runtime from your uploaded wasm folder
+    log('Loading LiteRT runtime…');
+    await loadLiteRt('/yolo-test/wasm/');
+    log('LiteRT runtime loaded. Loading card model…');
 
-  // 2. Initialize LiteRT.js runtime from your uploaded folder
-  log('Loading LiteRT runtime…');
-  await loadLiteRt('/yolo-test/wasm/');
+    // 2. Load the .tflite model
+    const model = await loadAndCompile('/yolo-test/best.tflite', { accelerator: 'wasm' });
+    log('Model loaded. Starting camera…');
 
-  // 3. Share the TFJS GPU device with LiteRT (for efficient tensor conversion)
-  liteRt.setWebGpuDevice(backend.device);
-  // 3. Make TFJS use the same GPU device as LiteRT (required for tensor conversion)
-  const device = await getWebGpuDevice();
-  tf.removeBackend('webgpu');
-  tf.registerBackend('webgpu', () => new WebGPUBackend(device, device.adapterInfo));
-  await tf.setBackend('webgpu');
+    // 3. Start camera
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    log('Camera ready. Running first inference…');
 
-  // 2. Load your .tflite model
-  log('Loading card model…');
-  const model = await loadAndCompile('best.tflite', { accelerator: 'wasm' });
-  log('Model loaded! Starting camera…');
+    // 4. Single test inference to confirm the model works
+    const input = tf.tidy(() => {
+      const img = tf.browser.fromPixels(video);
+      const resized = tf.image.resizeBilinear(img, [640, 640]);
+      return resized.div(255.0).expandDims(0);
+    });
 
-  // 3. Start camera
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
-  });
-  video.srcObject = stream;
-  await new Promise(r => video.onloadedmetadata = r);
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  log('Camera ready. Scanning for cards…');
+    const outputs = await runWithTfjsTensors(model, [input]);
+    input.dispose();
 
-  // 4. Detection loop
-  let running = false;
-  const detect = async () => {
-    if (!running && video.readyState === 4) {
-      running = true;
-      try {
-        // Preprocess: convert video frame to a TF tensor
-        const input = tf.tidy(() => {
-          const img = tf.browser.fromPixels(video);
-          const resized = tf.image.resizeBilinear(img, [640, 640]);
-          const normalized = resized.div(255.0);
-          // LiteRT might expect NHWC or NCHW. Try NHWC first.
-          return normalized.expandDims(0);
-        });
+    const out = outputs[0];
+    log('✅ Model output shape: ' + out.shape.join(', '));
+    out.dispose();
 
-        // Run the model
-        const outputs = await runWithTfjsTensors(model, [input]);
-        input.dispose();
-
-        // For now, just log that we got output. Parsing OBB comes next.
-        const out = outputs[0];
-        const shape = out.shape;
-        log(`Model output shape: ${shape.join(', ')}`);
-        
-        // Clean up
-        out.dispose();
-      } catch (e) {
-        console.error(e);
-        log('Detection error: ' + e.message);
-      }
-      running = false;
-    }
-    requestAnimationFrame(detect);
-  };
-  detect();
-
-} catch (e) {
-  console.error(e);
-  log('❌ Error: ' + e.message);
-}
+  } catch (e) {
+    console.error(e);
+    log('❌ Error: ' + (e.message || String(e)));
+  }
+})();
 </script>
 </body>
 </html>
