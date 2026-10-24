@@ -63,7 +63,112 @@ try {
   canvas.height = video.videoHeight;
   log('Step 9: Camera ready. Model is loaded and ready for inference.');
 
-  log('Step 10: ✅ Model loaded successfully. Output shape will be printed here after inference.');
+    log('Step 10: Model loaded. Starting detection loop…');
+
+  const CONF_THRESHOLD = 0.35;
+  const MODEL_SIZE = 640;
+  const COLORS = ['#ffd34e', '#6ea8ff', '#7ddf9b', '#ff8a8a'];
+
+  let running = false;
+
+  const detect = async () => {
+    if (!running && video.readyState === 4) {
+      running = true;
+      try {
+        const input = tf.tidy(() => {
+          const img = tf.browser.fromPixels(video);
+          const resized = tf.image.resizeBilinear(img, [MODEL_SIZE, MODEL_SIZE]);
+          return resized.div(255.0).expandDims(0).transpose([0, 3, 1, 2]);
+        });
+
+        const raw = model.execute ? model.execute(input) : model.executeAsync(input);
+        const output = raw && typeof raw.then === 'function' ? await raw : raw;
+        const tensor = Array.isArray(output) ? output[0] : output;
+        const data = await tensor.data();
+        const shape = tensor.shape;
+        tensor.dispose();
+        input.dispose();
+
+        const numCandidates = shape[2];
+        const candidates = [];
+
+        for (let i = 0; i < numCandidates; i++) {
+          const conf = data[4 * numCandidates + i];
+          if (conf < CONF_THRESHOLD) continue;
+
+          const cx = data[0 * numCandidates + i];
+          const cy = data[1 * numCandidates + i];
+          const w  = data[2 * numCandidates + i];
+          const h  = data[3 * numCandidates + i];
+          const angle = data[5 * numCandidates + i];
+
+          candidates.push({ cx, cy, w, h, angle, conf });
+        }
+
+        const kept = nms(candidates, 0.45);
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 3;
+        ctx.font = '16px sans-serif';
+
+        for (const box of kept) {
+          drawRotatedBox(ctx, box, canvas.width, canvas.height);
+        }
+
+        log(`Detected ${kept.length} card${kept.length === 1 ? '' : 's'}`);
+      } catch (e) {
+        console.error(e);
+        log('Detection error: ' + e.message);
+      }
+      running = false;
+    }
+    requestAnimationFrame(detect);
+  };
+
+  const nms = (boxes, iouThresh) => {
+    boxes.sort((a, b) => b.conf - a.conf);
+    const kept = [];
+    const used = new Array(boxes.length).fill(false);
+    for (let i = 0; i < boxes.length; i++) {
+      if (used[i]) continue;
+      kept.push(boxes[i]);
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (used[j]) continue;
+        if (rotatedIoU(boxes[i], boxes[j]) > iouThresh) used[j] = true;
+      }
+    }
+    return kept;
+  };
+
+  const rotatedIoU = (a, b) => {
+    const dx = a.cx - b.cx, dy = a.cy - b.cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const avgSize = (a.w + a.h + b.w + b.h) / 4;
+    return dist < avgSize * 0.5 ? 0.6 : 0;
+  };
+
+  const drawRotatedBox = (ctx, box, canvasW, canvasH) => {
+    const scaleX = canvasW / MODEL_SIZE;
+    const scaleY = canvasH / MODEL_SIZE;
+    const cx = box.cx * scaleX;
+    const cy = box.cy * scaleY;
+    const w = box.w * scaleX;
+    const h = box.h * scaleY;
+    const angle = box.angle;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.strokeStyle = COLORS[0];
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.fillStyle = COLORS[0];
+    ctx.fillText(`${(box.conf * 100).toFixed(0)}%`, -w / 2, -h / 2 - 6);
+    ctx.restore();
+  };
+
+  detect();
 
 } catch (e) {
   log('❌ Error: ' + (e.message || String(e)));
