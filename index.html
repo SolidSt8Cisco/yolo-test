@@ -91,7 +91,7 @@ try {
         const tensor = Array.isArray(outputs) ? outputs[0] : outputs;
         const data = await tensor.data();
         const shape = tensor.shape;
-        tensor.delete();
+        tensor.dispose();
 
         const numCandidates = shape[2];
         const candidates = [];
