@@ -36,7 +36,7 @@ const log = (msg) => { status.textContent = msg; };
   try {
     log('Step 1: Loading LiteRT runtime from /yolo-test/wasm/…');
     await tf.setBackend('wasm');
-    await loadLiteRt('/yolo-test/wasm/');
+    await loadLiteRt('https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/wasm/');
     log('Step 2: Runtime loaded. Loading model…');
 
     const model = await loadAndCompile('/yolo-test/best.tflite', { accelerator: 'wasm' });
