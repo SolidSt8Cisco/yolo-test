@@ -74,6 +74,52 @@ try {
 
   let running = false;
 
+  const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+
+  const drawRotatedBox = (ctx, box, canvasW, canvasH) => {
+    const angleRad = (sigmoid(box.angle) - 0.25) * Math.PI;
+    const isNormalized = box.cx < 2 && box.cy < 2;
+    const scaleX = isNormalized ? canvasW : canvasW / MODEL_SIZE;
+    const scaleY = isNormalized ? canvasH : canvasH / MODEL_SIZE;
+    const cx = box.cx * scaleX;
+    const cy = box.cy * scaleY;
+    const w = box.w * scaleX;
+    const h = box.h * scaleY;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angleRad);
+    ctx.strokeStyle = COLORS[0];
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.fillStyle = COLORS[0];
+    ctx.font = '16px sans-serif';
+    ctx.fillText(`${(box.conf * 100).toFixed(0)}%`, -w / 2, -h / 2 - 6);
+    ctx.restore();
+  };
+
+  const rotatedIoU = (a, b) => {
+    const dx = a.cx - b.cx, dy = a.cy - b.cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const avgSize = (a.w + a.h + b.w + b.h) / 4;
+    return dist < avgSize * 0.5 ? 0.6 : 0;
+  };
+
+  const nms = (boxes, iouThresh) => {
+    boxes.sort((a, b) => b.conf - a.conf);
+    const kept = [];
+    const used = new Array(boxes.length).fill(false);
+    for (let i = 0; i < boxes.length; i++) {
+      if (used[i]) continue;
+      kept.push(boxes[i]);
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (used[j]) continue;
+        if (rotatedIoU(boxes[i], boxes[j]) > iouThresh) used[j] = true;
+      }
+    }
+    return kept;
+  };
+
   const detect = async () => {
     if (!running && video.readyState === 4) {
       running = true;
@@ -84,7 +130,6 @@ try {
           return resized.div(255.0).expandDims(0).transpose([0, 3, 1, 2]);
         });
 
-        // The correct way to run a TFJS tensor through a LiteRT model
         const outputs = await runWithTfjsTensors(model, [input]);
         input.dispose();
 
@@ -117,82 +162,17 @@ try {
         ctx.font = '16px sans-serif';
 
         for (const box of kept) {
-      const drawRotatedBox = (ctx, box, canvasW, canvasH) => {
-  // YOLO11 OBB outputs raw angle; apply sigmoid and shift
-  // Formula from Ultralytics inference: (sigmoid(raw) - 0.25) * pi
-  const sigmoid = 1 / (1 + Math.exp(-box.angle));
-  const angleRad = (sigmoid - 0.25) * Math.PI;
+          drawRotatedBox(ctx, box, canvas.width, canvas.height);
+        }
 
-  // Detect if coordinates are normalized (0-1) or pixel (0-640)
-  // If cx is less than 2, it's normalized. Otherwise, it's pixels.
-  const isNormalized = box.cx < 2 && box.cy < 2;
-  
-  let scaleX, scaleY;
-  if (isNormalized) {
-    scaleX = canvasW;
-    scaleY = canvasH;
-  } else {
-    scaleX = canvasW / MODEL_SIZE;
-    scaleY = canvasH / MODEL_SIZE;
-  }
-
-  const cx = box.cx * scaleX;
-  const cy = box.cy * scaleY;
-  const w = box.w * scaleX;
-  const h = box.h * scaleY;
-
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(angleRad);
-  ctx.strokeStyle = COLORS[0];
-  ctx.lineWidth = 3;
-  ctx.strokeRect(-w / 2, -h / 2, w, h);
-  ctx.fillStyle = COLORS[0];
-  ctx.font = '16px sans-serif';
-  ctx.fillText(`${(box.conf * 100).toFixed(0)}%`, -w / 2, -h / 2 - 6);
-  ctx.restore();
-};
-
-  const nms = (boxes, iouThresh) => {
-    boxes.sort((a, b) => b.conf - a.conf);
-    const kept = [];
-    const used = new Array(boxes.length).fill(false);
-    for (let i = 0; i < boxes.length; i++) {
-      if (used[i]) continue;
-      kept.push(boxes[i]);
-      for (let j = i + 1; j < boxes.length; j++) {
-        if (used[j]) continue;
-        if (rotatedIoU(boxes[i], boxes[j]) > iouThresh) used[j] = true;
+        log(`Detected ${kept.length} card${kept.length === 1 ? '' : 's'}`);
+      } catch (e) {
+        console.error(e);
+        log('Detection error: ' + e.message);
       }
+      running = false;
     }
-    return kept;
-  };
-
-  const rotatedIoU = (a, b) => {
-    const dx = a.cx - b.cx, dy = a.cy - b.cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const avgSize = (a.w + a.h + b.w + b.h) / 4;
-    return dist < avgSize * 0.5 ? 0.6 : 0;
-  };
-
-  const drawRotatedBox = (ctx, box, canvasW, canvasH) => {
-    const scaleX = canvasW / MODEL_SIZE;
-    const scaleY = canvasH / MODEL_SIZE;
-    const cx = box.cx * scaleX;
-    const cy = box.cy * scaleY;
-    const w = box.w * scaleX;
-    const h = box.h * scaleY;
-    const angle = box.angle;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-    ctx.strokeStyle = COLORS[0];
-    ctx.lineWidth = 3;
-    ctx.strokeRect(-w / 2, -h / 2, w, h);
-    ctx.fillStyle = COLORS[0];
-    ctx.fillText(`${(box.conf * 100).toFixed(0)}%`, -w / 2, -h / 2 - 6);
-    ctx.restore();
+    requestAnimationFrame(detect);
   };
 
   detect();
