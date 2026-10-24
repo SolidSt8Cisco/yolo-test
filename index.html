@@ -36,6 +36,20 @@ const log = (msg) => { status.textContent = msg; };
   try {
     log('Step 1: Loading LiteRT runtime from /yolo-test/wasm/…');
     await tf.setBackend('wasm');
+    // --- DIAGNOSTIC: Check if the WASM file is reachable ---
+log('Checking WASM file status…');
+try {
+  const response = await fetch('/yolo-test/wasm/litert_wasm_internal.js');
+  log('WASM file status: ' + response.status);
+  if (response.status !== 200) {
+    log('❌ Error: The file is not at that path. Status: ' + response.status);
+    return; // Stop here so we don't hang on loadLiteRt
+  }
+} catch (e) {
+  log('❌ Fetch failed: ' + e.message);
+  return;
+}
+// -------------------------------------------------------
     await loadLiteRt('/yolo-test/wasm/');
     log('Step 2: Runtime loaded. Loading model…');
 
