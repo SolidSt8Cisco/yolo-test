@@ -1,3 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LiteRT Card Detector</title>
+<style>
+body{margin:0;background:#111;color:#eee;font-family:system-ui,sans-serif;text-align:center;padding:10px}
+#status{margin:8px 0;font-size:14px;padding:8px;background:#222;border-radius:8px;min-height:40px}
+#wrap{position:relative;display:inline-block;max-width:100%}
+video{max-width:100%;border-radius:8px;display:block}
+canvas{position:absolute;left:0;top:0;pointer-events:none;max-width:100%}
+</style>
+</head>
+<body>
+<h2>LiteRT Card Detector</h2>
+<div id="status">Loading…</div>
+<div id="wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</div>
+
 <script type="module">
 document.getElementById('status').textContent = 'Step 1: Script loaded.';
 
@@ -42,10 +63,11 @@ try {
   canvas.height = video.videoHeight;
   log('Step 9: Camera ready. Model is loaded and ready for inference.');
 
-  // Inference code will go here once we confirm the model loads.
   log('Step 10: ✅ Model loaded successfully. Output shape will be printed here after inference.');
 
 } catch (e) {
   log('❌ Error: ' + (e.message || String(e)));
 }
 </script>
+</body>
+</html>
