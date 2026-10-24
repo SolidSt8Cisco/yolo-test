@@ -28,6 +28,9 @@ document.getElementById('status').textContent = 'Step 2: TensorFlow.js imported.
 import { loadLiteRt, loadAndCompile } from 'https://cdn.jsdelivr.net/npm/@litertjs/core@2.6.0/+esm';
 document.getElementById('status').textContent = 'Step 3: LiteRT glue imported.';
 
+import { runWithTfjsTensors } from 'https://cdn.jsdelivr.net/npm/@litertjs/tfjs-interop@2.6.0/+esm';
+document.getElementById('status').textContent = 'Step 3b: Interop imported.';
+
 const status = document.getElementById('status');
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -63,7 +66,7 @@ try {
   canvas.height = video.videoHeight;
   log('Step 9: Camera ready. Model is loaded and ready for inference.');
 
-    log('Step 10: Model loaded. Starting detection loop…');
+  log('Step 10: Model loaded. Starting detection loop…');
 
   const CONF_THRESHOLD = 0.35;
   const MODEL_SIZE = 640;
@@ -81,13 +84,14 @@ try {
           return resized.div(255.0).expandDims(0).transpose([0, 3, 1, 2]);
         });
 
-        const raw = model.execute ? model.execute(input) : model.executeAsync(input);
-        const output = raw && typeof raw.then === 'function' ? await raw : raw;
-        const tensor = Array.isArray(output) ? output[0] : output;
+        // The correct way to run a TFJS tensor through a LiteRT model
+        const outputs = await runWithTfjsTensors(model, [input]);
+        input.dispose();
+
+        const tensor = Array.isArray(outputs) ? outputs[0] : outputs;
         const data = await tensor.data();
         const shape = tensor.shape;
-        tensor.dispose();
-        input.dispose();
+        tensor.delete();
 
         const numCandidates = shape[2];
         const candidates = [];
