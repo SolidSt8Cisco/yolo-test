@@ -77,7 +77,7 @@ try {
   const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 
   const drawRotatedBox = (ctx, box, canvasW, canvasH) => {
-    const angleRad = box.angle;
+    const angleRad = box.angle * Math.PI / 180;
     const isNormalized = box.cx < 2 && box.cy < 2;
     const scaleX = isNormalized ? canvasW : canvasW / MODEL_SIZE;
     const scaleY = isNormalized ? canvasH : canvasH / MODEL_SIZE;
